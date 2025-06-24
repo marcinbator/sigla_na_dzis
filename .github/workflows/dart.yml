@@ -16,7 +16,7 @@ jobs:
 
       - name: Install Flutter (dev version)
         run: |
-          git clone https://github.com/flutter/flutter.git --branch 3.32.0-1.0.pre --depth 1
+          git clone https://github.com/flutter/flutter.git --branch 3.34.0-0.0.pre --depth 1
           echo "$GITHUB_WORKSPACE/flutter/bin" >> $GITHUB_PATH
           export PATH="$GITHUB_WORKSPACE/flutter/bin:$PATH"
           flutter doctor
