@@ -26,7 +26,7 @@ Future<void> scheduleDailyUpdate() async {
   await Workmanager().registerPeriodicTask(
     "1",
     taskName,
-    frequency: Duration(minutes: 20),
+    frequency: Duration(hours: 1),
     initialDelay: Duration(seconds: 1),
     constraints: Constraints(networkType: NetworkType.connected),
   );
@@ -95,20 +95,104 @@ Future<Map<String, String>> fetchAndReturnFullReadings() async {
 }
 
 Future<void> fetchAndUpdateWidgetData() async {
-  final now = DateTime.now();
+  DateTime now = DateTime.now();
+  DateTime today = DateTime(now.year, now.month, now.day);
+  DateTime tomorrow = today.add(Duration(days: 1));
+
+  try {
+    final cachedToday = await HomeWidget.getWidgetData<String>('sigla_today');
+    final cachedTodayDateStr = await HomeWidget.getWidgetData<String>(
+      'sigla_today_date',
+    );
+    final isTodayCached =
+        cachedToday != null && cachedTodayDateStr == today.toIso8601String();
+
+    final cachedTomorrow = await HomeWidget.getWidgetData<String>(
+      'sigla_tomorrow',
+    );
+    final cachedTomorrowDateStr = await HomeWidget.getWidgetData<String>(
+      'sigla_tomorrow_date',
+    );
+    final isTomorrowCached =
+        cachedTomorrow != null &&
+        cachedTomorrowDateStr == tomorrow.toIso8601String();
+
+    String todaySigla = cachedToday ?? await _fetchSiglaForDate(today);
+    String tomorrowSigla = cachedTomorrow ?? await _fetchSiglaForDate(tomorrow);
+
+    if (!isTodayCached) {
+      await HomeWidget.saveWidgetData<String>('sigla_today', todaySigla);
+      await HomeWidget.saveWidgetData<String>(
+        'sigla_today_date',
+        today.toIso8601String(),
+      );
+    }
+
+    if (!isTomorrowCached) {
+      await HomeWidget.saveWidgetData<String>('sigla_tomorrow', tomorrowSigla);
+      await HomeWidget.saveWidgetData<String>(
+        'sigla_tomorrow_date',
+        tomorrow.toIso8601String(),
+      );
+    }
+
+    final formattedTime =
+        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
+
+    await HomeWidget.saveWidgetData<String>(kSiglaKey, todaySigla);
+    await HomeWidget.saveWidgetData<String>(
+      'last_date',
+      today.toIso8601String(),
+    );
+    await HomeWidget.saveWidgetData<String>(
+      'last_update',
+      'Ostatnia aktualizacja: $formattedTime',
+    );
+    await HomeWidget.updateWidget(name: 'ReadingsWidgetProvider');
+  } catch (e) {
+    final lastSavedDateStr = await HomeWidget.getWidgetData<String>(
+      'last_date',
+    );
+    if (lastSavedDateStr != null) {
+      final lastSavedDate = DateTime.tryParse(lastSavedDateStr);
+      if (lastSavedDate != null) {
+        final nowDateOnly = DateTime(now.year, now.month, now.day);
+        final diff = nowDateOnly.difference(lastSavedDate).inDays;
+        if (diff == 1) {
+          final fallbackSigla = await HomeWidget.getWidgetData<String>(
+            'sigla_tomorrow',
+          );
+          if (fallbackSigla != null) {
+            await HomeWidget.saveWidgetData<String>(kSiglaKey, fallbackSigla);
+            await HomeWidget.saveWidgetData<String>(
+              'last_date',
+              nowDateOnly.toIso8601String(),
+            );
+            await HomeWidget.saveWidgetData<String>(
+              'last_update',
+              'Załadowano z zapasu na jutro',
+            );
+            await HomeWidget.updateWidget(name: 'ReadingsWidgetProvider');
+          }
+        }
+      }
+    }
+  }
+}
+
+Future<String> _fetchSiglaForDate(DateTime date) async {
   final dateStr =
-      '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+      '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
 
   final response = await http.get(
     Uri.parse(
       'https://widget.niedziela.pl/liturgia_out.js.php?data=$dateStr&kodowanie=utf-8',
     ),
   );
+  if (response.statusCode != 200) throw Exception("Błąd pobierania danych");
+
   final decodedBody = utf8.decode(response.bodyBytes);
-
-  if (response.statusCode != 200) return;
   final document = parse(decodedBody);
-
   final siglaElements = document.querySelectorAll('p.nd_wstep > span.nd_sigla');
 
   String pierwsze = '';
@@ -126,21 +210,11 @@ Future<void> fetchAndUpdateWidgetData() async {
     }
   }
 
-  final allSigla = [
+  return [
     if (pierwsze.isNotEmpty) '<b>1. czytanie:</b> $pierwsze',
     if (drugie.isNotEmpty) '<b>2. czytanie:</b> $drugie',
     if (ewangelia.isNotEmpty) '<b>Ewangelia:</b> $ewangelia',
   ].join('<br><br>');
-
-  final formattedTime =
-      '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
-
-  await HomeWidget.saveWidgetData<String>(kSiglaKey, allSigla);
-  await HomeWidget.saveWidgetData<String>(
-    'last_update',
-    'Ostatnia aktualizacja: $formattedTime',
-  );
-  await HomeWidget.updateWidget(name: 'ReadingsWidgetProvider');
 }
 
 @pragma("vm:entry-point")
@@ -174,9 +248,7 @@ class MyApp extends StatelessWidget {
   }
 
   Future<Map<String, String>> getFullReadings() async {
-    final data = await fetchAndReturnFullReadings();
-    print(data.entries);
-    return data;
+    return await fetchAndReturnFullReadings();
   }
 
   String getFormattedDate() {
@@ -192,11 +264,7 @@ class MyApp extends StatelessWidget {
         appBar: AppBar(
           title: Row(
             children: [
-              Image.asset(
-                'assets/icon.png',
-                height: 32,
-                width: 32,
-              ),
+              Image.asset('assets/icon.png', height: 32, width: 32),
               SizedBox(width: 8),
               Text('Czytania - ${getFormattedDate()}'),
             ],
