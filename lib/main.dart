@@ -3,11 +3,11 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_html/flutter_html.dart';
 import 'package:home_widget/home_widget.dart';
 import 'package:html/parser.dart';
 import 'package:http/http.dart' as http;
 import 'package:workmanager/workmanager.dart';
-import 'package:flutter_html/flutter_html.dart';
 
 const String kSiglaKey = 'sigla';
 const String taskName = "dailySiglaUpdate";
@@ -69,7 +69,7 @@ Future<void> fetchAndUpdateWidgetData() async {
   ].join('<br><br>');
 
   final formattedTime =
-      '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+      '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
 
   await HomeWidget.saveWidgetData<String>(kSiglaKey, allSigla);
   await HomeWidget.saveWidgetData<String>(
@@ -88,7 +88,6 @@ FutureOr<void> backgroundCallback(Uri? uri) async {
     await fetchAndUpdateWidgetData();
   }
 }
-
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -146,4 +145,3 @@ class MyApp extends StatelessWidget {
     );
   }
 }
-
