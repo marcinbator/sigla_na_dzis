@@ -5,9 +5,9 @@ import android.appwidget.AppWidgetManager
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
-import android.text.Html
 import android.widget.RemoteViews
 import androidx.core.net.toUri
+import androidx.core.text.HtmlCompat
 import es.antonborri.home_widget.HomeWidgetBackgroundIntent
 import es.antonborri.home_widget.HomeWidgetProvider
 
@@ -25,7 +25,10 @@ class ReadingsWidgetProvider : HomeWidgetProvider() {
             val last = widgetData.getString("last_update", "Ostatnia aktualizacja: --:--")
                 ?: "Ostatnia aktualizacja: --:--"
 
-            views.setTextViewText(R.id.widget_sigla, Html.fromHtml(sigla))
+            views.setTextViewText(
+                R.id.widget_sigla,
+                HtmlCompat.fromHtml(sigla, HtmlCompat.FROM_HTML_MODE_LEGACY)
+            )
             views.setTextViewText(R.id.widget_update_time, last)
 
             val refreshIntent = HomeWidgetBackgroundIntent.getBroadcast(

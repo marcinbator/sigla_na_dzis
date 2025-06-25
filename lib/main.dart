@@ -1,263 +1,52 @@
 import 'dart:async';
-import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_html/flutter_html.dart';
 import 'package:home_widget/home_widget.dart';
-import 'package:html/parser.dart' show parse;
-import 'package:html/parser.dart';
-import 'package:html_unescape/html_unescape.dart';
-import 'package:http/http.dart' as http;
+import 'package:sigla_na_dzis/mapper/body_mapper.dart';
+import 'package:sigla_na_dzis/service/api_service.dart';
+import 'package:sigla_na_dzis/service/widget_service.dart';
 import 'package:workmanager/workmanager.dart';
 
-const String kSiglaKey = 'sigla';
-const String taskName = "dailySiglaUpdate";
-
 @pragma("vm:entry-point")
-void callbackDispatcher() {
+void widgetRefreshTask() {
   Workmanager().executeTask((task, inputData) async {
-    await fetchAndUpdateWidgetData();
+    await updateWidgetData();
     return Future.value(true);
   });
 }
 
-Future<void> scheduleDailyUpdate() async {
-  await Workmanager().registerPeriodicTask(
-    "1",
-    taskName,
-    frequency: Duration(hours: 1),
-    initialDelay: Duration(seconds: 1),
-    constraints: Constraints(networkType: NetworkType.connected),
-  );
-}
-
-Future<Map<String, String>> fetchAndReturnFullReadings() async {
-  final now = DateTime.now();
-  final dateStr =
-      '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-
-  final response = await http.get(
-    Uri.parse(
-      'https://widget.niedziela.pl/liturgia_out.js.php?data=$dateStr&kodowanie=utf-8',
-    ),
-  );
-
-  final bodyString = utf8.decode(response.bodyBytes);
-
-  final start =
-      bodyString.indexOf("document.write('") + "document.write('".length;
-  final end = bodyString.indexOf("');", start);
-  final rawHtml = bodyString.substring(start, end);
-  final cleanedHtml = HtmlUnescape().convert(rawHtml);
-  final document = parse(cleanedHtml);
-
-  final czytanieSigla = document.querySelectorAll('.nd_czytanie_sigla');
-  final czytanieTresci = document.querySelectorAll('.nd_czytanie_tresc');
-
-  final bool hasSecondReading = czytanieTresci.length > 4;
-
-  final Map<String, String> data = {
-    'czytanie1_sigla': czytanieSigla.elementAtOrNull(0)?.text.trim() ?? '',
-    'czytanie1_tresc': czytanieTresci.elementAtOrNull(0)?.text.trim() ?? '',
-    'psalm_refren':
-        document.querySelector('.nd_psalm_refren')?.text.trim() ?? '',
-    'psalm': document
-        .querySelectorAll('.nd_psalm')
-        .map((e) => e.text.trim())
-        .join('<br><br>'),
-
-    'czytanie2_sigla': hasSecondReading
-        ? czytanieSigla.elementAtOrNull(2)?.text.trim() ?? ''
-        : '',
-    'czytanie2_tresc': hasSecondReading
-        ? czytanieTresci.elementAtOrNull(1)?.text.trim() ?? ''
-        : '',
-
-    'aklamacja_sigla': hasSecondReading
-        ? czytanieSigla.elementAtOrNull(3)?.text.trim() ?? ''
-        : czytanieSigla.elementAtOrNull(2)?.text.trim() ?? '',
-
-    'aklamacja': hasSecondReading
-        ? czytanieTresci.elementAtOrNull(3)?.text.trim() ?? ''
-        : czytanieTresci.elementAtOrNull(2)?.text.trim() ?? '',
-
-    'ewangelia_sigla': hasSecondReading
-        ? czytanieSigla.elementAtOrNull(4)?.text.trim() ?? ''
-        : czytanieSigla.elementAtOrNull(3)?.text.trim() ?? '',
-
-    'ewangelia_tresc': hasSecondReading
-        ? czytanieTresci.elementAtOrNull(4)?.text.trim() ?? ''
-        : czytanieTresci.elementAtOrNull(3)?.text.trim() ?? '',
-  };
-
-  return data;
-}
-
-Future<void> fetchAndUpdateWidgetData() async {
-  DateTime now = DateTime.now();
-  DateTime today = DateTime(now.year, now.month, now.day);
-  DateTime tomorrow = today.add(Duration(days: 1));
-
-  try {
-    final cachedToday = await HomeWidget.getWidgetData<String>('sigla_today');
-    final cachedTodayDateStr = await HomeWidget.getWidgetData<String>(
-      'sigla_today_date',
-    );
-    final isTodayCached =
-        cachedToday != null && cachedTodayDateStr == today.toIso8601String();
-
-    final cachedTomorrow = await HomeWidget.getWidgetData<String>(
-      'sigla_tomorrow',
-    );
-    final cachedTomorrowDateStr = await HomeWidget.getWidgetData<String>(
-      'sigla_tomorrow_date',
-    );
-    final isTomorrowCached =
-        cachedTomorrow != null &&
-        cachedTomorrowDateStr == tomorrow.toIso8601String();
-
-    String todaySigla = cachedToday ?? await _fetchSiglaForDate(today);
-    String tomorrowSigla = cachedTomorrow ?? await _fetchSiglaForDate(tomorrow);
-
-    if (!isTodayCached) {
-      await HomeWidget.saveWidgetData<String>('sigla_today', todaySigla);
-      await HomeWidget.saveWidgetData<String>(
-        'sigla_today_date',
-        today.toIso8601String(),
-      );
-    }
-
-    if (!isTomorrowCached) {
-      await HomeWidget.saveWidgetData<String>('sigla_tomorrow', tomorrowSigla);
-      await HomeWidget.saveWidgetData<String>(
-        'sigla_tomorrow_date',
-        tomorrow.toIso8601String(),
-      );
-    }
-
-    final formattedTime =
-        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
-
-    await HomeWidget.saveWidgetData<String>(kSiglaKey, todaySigla);
-    await HomeWidget.saveWidgetData<String>(
-      'last_date',
-      today.toIso8601String(),
-    );
-    await HomeWidget.saveWidgetData<String>(
-      'last_update',
-      'Ostatnia aktualizacja: $formattedTime',
-    );
-    await HomeWidget.updateWidget(name: 'ReadingsWidgetProvider');
-  } catch (e) {
-    final lastSavedDateStr = await HomeWidget.getWidgetData<String>(
-      'last_date',
-    );
-    if (lastSavedDateStr != null) {
-      final lastSavedDate = DateTime.tryParse(lastSavedDateStr);
-      if (lastSavedDate != null) {
-        final nowDateOnly = DateTime(now.year, now.month, now.day);
-        final diff = nowDateOnly.difference(lastSavedDate).inDays;
-        if (diff == 1) {
-          final fallbackSigla = await HomeWidget.getWidgetData<String>(
-            'sigla_tomorrow',
-          );
-          if (fallbackSigla != null) {
-            await HomeWidget.saveWidgetData<String>(kSiglaKey, fallbackSigla);
-            await HomeWidget.saveWidgetData<String>(
-              'last_date',
-              nowDateOnly.toIso8601String(),
-            );
-            await HomeWidget.saveWidgetData<String>(
-              'last_update',
-              'Załadowano z zapasu na jutro',
-            );
-            await HomeWidget.updateWidget(name: 'ReadingsWidgetProvider');
-          }
-        }
-      }
-    }
-  }
-}
-
-Future<String> _fetchSiglaForDate(DateTime date) async {
-  final dateStr =
-      '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-
-  final response = await http.get(
-    Uri.parse(
-      'https://widget.niedziela.pl/liturgia_out.js.php?data=$dateStr&kodowanie=utf-8',
-    ),
-  );
-  if (response.statusCode != 200) throw Exception("Błąd pobierania danych");
-
-  final decodedBody = utf8.decode(response.bodyBytes);
-  final document = parse(decodedBody);
-  final siglaElements = document.querySelectorAll('p.nd_wstep > span.nd_sigla');
-
-  String pierwsze = '';
-  String drugie = '';
-  String ewangelia = '';
-
-  for (var el in siglaElements) {
-    final text = el.text.trim();
-    if (el.parent!.text.contains('1. czytanie')) {
-      pierwsze = text;
-    } else if (el.parent!.text.contains('2. czytanie')) {
-      drugie = text;
-    } else if (el.parent!.text.contains('Ewangelia')) {
-      ewangelia = text;
-    }
-  }
-
-  return [
-    if (pierwsze.isNotEmpty) '<b>1. czytanie:</b> $pierwsze',
-    if (drugie.isNotEmpty) '<b>2. czytanie:</b> $drugie',
-    if (ewangelia.isNotEmpty) '<b>Ewangelia:</b> $ewangelia',
-  ].join('<br><br>');
-}
-
 @pragma("vm:entry-point")
-FutureOr<void> backgroundCallback(Uri? uri) async {
-  if (kDebugMode) {
-    print("refresh callback");
-  }
+FutureOr<void> widgetCallback(Uri? uri) async {
   if (uri?.host == 'refresh') {
-    await fetchAndUpdateWidgetData();
+    await updateWidgetData();
   }
 }
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  HomeWidget.registerInteractivityCallback(widgetCallback);
 
-  HomeWidget.registerInteractivityCallback(backgroundCallback);
+  await Workmanager().initialize(widgetRefreshTask);
+  await Workmanager().registerPeriodicTask(
+    "1",
+    "dailySiglaUpdate",
+    frequency: Duration(hours: 1),
+    initialDelay: Duration(seconds: 1),
+    constraints: Constraints(networkType: NetworkType.connected),
+  );
+  await updateWidgetData();
 
-  await Workmanager().initialize(callbackDispatcher);
-  await scheduleDailyUpdate();
-
-  await fetchAndUpdateWidgetData();
-
-  runApp(MyApp());
+  runApp(SiglaApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  Future<String> getSigla() async {
-    return await HomeWidget.getWidgetData<String>(kSiglaKey) ?? 'Brak danych';
-  }
-
-  Future<Map<String, String>> getFullReadings() async {
-    return await fetchAndReturnFullReadings();
-  }
-
-  String getFormattedDate() {
-    final now = DateTime.now();
-    return '${now.day.toString().padLeft(2, '0')}.${now.month.toString().padLeft(2, '0')}.${now.year}';
-  }
+class SiglaApp extends StatelessWidget {
+  const SiglaApp({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final now = DateTime.now();
+
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       home: Scaffold(
@@ -266,12 +55,14 @@ class MyApp extends StatelessWidget {
             children: [
               Image.asset('assets/icon.png', height: 32, width: 32),
               SizedBox(width: 8),
-              Text('Czytania - ${getFormattedDate()}'),
+              Text(
+                'Czytania - ${now.day.toString().padLeft(2, '0')}.${now.month.toString().padLeft(2, '0')}.${now.year}',
+              ),
             ],
           ),
         ),
         body: FutureBuilder<Map<String, String>>(
-          future: getFullReadings(),
+          future: fetchAndReturnFullReadings(now),
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return Center(child: CircularProgressIndicator());
@@ -281,37 +72,10 @@ class MyApp extends StatelessWidget {
               return Center(child: Text('Brak danych'));
             }
 
-            final data = snapshot.data!;
-            final hasSecondReading =
-                (data['czytanie2_sigla']?.isNotEmpty ?? false) &&
-                (data['czytanie2_tresc']?.isNotEmpty ?? false);
-
             return SingleChildScrollView(
               padding: EdgeInsets.all(16),
               child: Html(
-                data:
-                    '''
-<b>CZYTANIE 1</b><br>
-<span style="color:#666666; font-style: italic;">${data['czytanie1_sigla']}</span><br>
-${data['czytanie1_tresc']}<br><br><br>
-
-<b>PSALM</b><br>
-<span>ref. ${data['psalm_refren']}</span><br><br>
-${data['psalm']}<br><br><br>
-
-${hasSecondReading ? '''
-<b>CZYTANIE 2</b><br>
-<span style="color:#666666; font-style: italic;">${data['czytanie2_sigla']}</span><br>
-${data['czytanie2_tresc']}<br><br><br>
-''' : ''}
-
-<b>AKLAMACJA</b><br>
-<span style="color:#666666; font-style: italic;">${data['aklamacja_sigla']}</span><br>${data['aklamacja']}<br><br><br>
-
-<b>EWANGELIA</b><br>
-<span style="color:#666666; font-style: italic;">${data['ewangelia_sigla']}</span><br>
-${data['ewangelia_tresc']}<br>
-''',
+                data: mapSiglaDataToSiglaAndContentHTML(snapshot.data!),
                 style: {
                   "b": Style(
                     fontWeight: FontWeight.bold,
