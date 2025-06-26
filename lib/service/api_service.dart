@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:html/dom.dart';
 import 'package:html/parser.dart';
 import 'package:html_unescape/html_unescape.dart';
 import 'package:http/http.dart' as http;
@@ -8,8 +9,8 @@ const String niedzielaUrl = "https://widget.niedziela.pl/liturgia_out.js.php";
 
 Future<Map<String, String>> fetchAndReturnFullReadings(DateTime date) async {
   final dateStr =
-      '${date.year.toString().padLeft(4, '0')}'
-      '-${date.month.toString().padLeft(2, '0')}-'
+      '${date.year.toString().padLeft(4, '0')}-'
+      '${date.month.toString().padLeft(2, '0')}-'
       '${date.day.toString().padLeft(2, '0')}';
 
   final response = await http.get(
@@ -25,36 +26,60 @@ Future<Map<String, String>> fetchAndReturnFullReadings(DateTime date) async {
   final cleanedHtml = HtmlUnescape().convert(rawHtml);
   final document = parse(cleanedHtml);
 
-  final readingsSigla = document.querySelectorAll('.nd_czytanie_sigla');
-  final readingsContent = document.querySelectorAll('.nd_czytanie_tresc');
+  final readings = _extractUniqueReadingsFromDocument(document);
+  final psalmRef =
+      document.querySelector('.nd_psalm_refren')?.text.trim() ?? '';
+  final psalmContent = document
+      .querySelectorAll('.nd_psalm')
+      .map((e) => e.text.trim())
+      .join('<br><br>');
 
-  final bool hasSecondReading = readingsContent.length > 4;
+  String getSigla(int index) =>
+      readings.length > index ? readings[index]['sigla'] ?? '' : '';
+  String getContent(int index) =>
+      readings.length > index ? readings[index]['content'] ?? '' : '';
+
+  final hasSecondReading = readings.length > 3;
 
   return {
-    'reading1_sigla': readingsSigla.elementAtOrNull(0)?.text.trim() ?? '',
-    'reading1_content': readingsContent.elementAtOrNull(0)?.text.trim() ?? '',
-    'psalm_ref': document.querySelector('.nd_psalm_refren')?.text.trim() ?? '',
-    'psalm': document
-        .querySelectorAll('.nd_psalm')
-        .map((e) => e.text.trim())
-        .join('<br><br>'),
-    'reading2_sigla': hasSecondReading
-        ? readingsSigla.elementAtOrNull(2)?.text.trim() ?? ''
-        : '',
-    'reading2_content': hasSecondReading
-        ? readingsContent.elementAtOrNull(1)?.text.trim() ?? ''
-        : '',
-    'acl_sigla': hasSecondReading
-        ? readingsSigla.elementAtOrNull(3)?.text.trim() ?? ''
-        : readingsSigla.elementAtOrNull(2)?.text.trim() ?? '',
-    'acl_content': hasSecondReading
-        ? readingsContent.elementAtOrNull(3)?.text.trim() ?? ''
-        : readingsContent.elementAtOrNull(2)?.text.trim() ?? '',
-    'evangelia_sigla': hasSecondReading
-        ? readingsSigla.elementAtOrNull(4)?.text.trim() ?? ''
-        : readingsSigla.elementAtOrNull(3)?.text.trim() ?? '',
-    'evangelia_content': hasSecondReading
-        ? readingsContent.elementAtOrNull(4)?.text.trim() ?? ''
-        : readingsContent.elementAtOrNull(3)?.text.trim() ?? '',
+    'reading1_sigla': getSigla(0),
+    'reading1_content': getContent(0),
+    'psalm_ref': psalmRef,
+    'psalm': psalmContent,
+    'reading2_sigla': hasSecondReading ? getSigla(1) : '',
+    'reading2_content': hasSecondReading ? getContent(1) : '',
+    'acl_sigla': getSigla(hasSecondReading ? 2 : 1),
+    'acl_content': getContent(hasSecondReading ? 2 : 1),
+    'evangelia_sigla': getSigla(hasSecondReading ? 3 : 2),
+    'evangelia_content': getContent(hasSecondReading ? 3 : 2),
   };
+}
+
+List<Map<String, String>> _extractUniqueReadingsFromDocument(
+  Document document,
+) {
+  final siglaElements = document.querySelectorAll('.nd_czytanie_sigla');
+  final contentElements = document.querySelectorAll('.nd_czytanie_tresc');
+
+  final readings = <Map<String, String>>[];
+
+  for (int i = 0; i < siglaElements.length && i < contentElements.length; i++) {
+    final siglaText = siglaElements[i].text.trim();
+    final contentText = contentElements[i].text.trim();
+
+    if (siglaText.startsWith('Ps ')) continue;
+
+    final alreadyExists = readings.any(
+      (r) =>
+          r['sigla'] == siglaText ||
+          r['content'] == contentText ||
+          r['content']!.contains(contentText) ||
+          contentText.contains(r['content']!),
+    );
+    if (alreadyExists) continue;
+
+    readings.add({'sigla': siglaText, 'content': contentText});
+  }
+
+  return readings;
 }
