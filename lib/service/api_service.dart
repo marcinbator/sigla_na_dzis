@@ -26,7 +26,6 @@ Future<Map<String, String>> fetchAndReturnFullReadings(DateTime date) async {
   final cleanedHtml = HtmlUnescape().convert(rawHtml);
   final document = parse(cleanedHtml);
 
-  final readings = _extractUniqueReadingsFromDocument(document);
   final psalmRef =
       document.querySelector('.nd_psalm_refren')?.text.trim() ?? '';
   final psalmContent = document
@@ -34,51 +33,81 @@ Future<Map<String, String>> fetchAndReturnFullReadings(DateTime date) async {
       .map((e) => e.text.trim())
       .join('<br><br>');
 
-  String getSigla(int index) =>
-      readings.length > index ? readings[index]['sigla'] ?? '' : '';
-  String getContent(int index) =>
-      readings.length > index ? readings[index]['content'] ?? '' : '';
+  final readings = _extractUniqueReadingsFromDocument(document);
 
-  final hasSecondReading = readings.length > 3;
+  String getReadingContent(String type, [int occurrence = 0]) {
+    final found = readings.where((r) => r['type'] == type).toList();
+    return (found.length > occurrence)
+        ? found[occurrence]['content'] ?? ''
+        : '';
+  }
+  String getReadingSigla(String type, [int occurrence = 0]) {
+    final found = readings.where((r) => r['type'] == type).toList();
+    return (found.length > occurrence) ? found[occurrence]['sigla'] ?? '' : '';
+  }
+
+  final acl1Sigla = getReadingSigla('aklamacja', 0);
+  final acl1Content = getReadingContent('aklamacja', 0);
+  final acl2Sigla = getReadingSigla('aklamacja', 1);
+  final acl2Content = getReadingContent('aklamacja', 1);
 
   return {
-    'reading1_sigla': getSigla(0),
-    'reading1_content': getContent(0),
+    'reading1_sigla': getReadingSigla('1. czytanie'),
+    'reading1_content': getReadingContent('1. czytanie'),
     'psalm_ref': psalmRef,
     'psalm': psalmContent,
-    'reading2_sigla': hasSecondReading ? getSigla(1) : '',
-    'reading2_content': hasSecondReading ? getContent(1) : '',
-    'acl_sigla': getSigla(hasSecondReading ? 2 : 1),
-    'acl_content': getContent(hasSecondReading ? 2 : 1),
-    'evangelia_sigla': getSigla(hasSecondReading ? 3 : 2),
-    'evangelia_content': getContent(hasSecondReading ? 3 : 2),
+    'reading2_sigla': getReadingSigla('2. czytanie'),
+    'reading2_content': getReadingContent('2. czytanie'),
+    'acl_sigla': acl1Sigla,
+    'acl_content': acl1Content,
+    'acl2_sigla': acl2Sigla,
+    'acl2_content': acl2Content,
+    'evangelia_sigla': getReadingSigla('ewangelia'),
+    'evangelia_content': getReadingContent('ewangelia'),
   };
 }
 
 List<Map<String, String>> _extractUniqueReadingsFromDocument(
   Document document,
 ) {
-  final siglaElements = document.querySelectorAll('.nd_czytanie_sigla');
-  final contentElements = document.querySelectorAll('.nd_czytanie_tresc');
-
+  final sections = document.querySelectorAll('#nd_liturgia_czytania > *');
   final readings = <Map<String, String>>[];
+  String? currentType;
+  String? currentSigla;
+  String? currentContent;
 
-  for (int i = 0; i < siglaElements.length && i < contentElements.length; i++) {
-    final siglaText = siglaElements[i].text.trim();
-    final contentText = contentElements[i].text.trim();
+  for (var element in sections) {
+    final className = element.className;
 
-    if (siglaText.startsWith('Ps ')) continue;
+    if (className == 'nd_czytanie_nazwa') {
+      if (currentType != null &&
+          currentSigla != null &&
+          currentContent != null) {
+        readings.add({
+          'type': currentType,
+          'sigla': currentSigla,
+          'content': currentContent,
+        });
+      }
+      if (element.text.trim().toLowerCase() != "wersja dłuższa" &&
+          element.text.trim().toLowerCase() != "wersja krótsza") {
+        currentType = element.text.trim().toLowerCase();
+      }
+      currentSigla = null;
+      currentContent = null;
+    } else if (className == 'nd_czytanie_sigla') {
+      currentSigla = element.text.trim();
+    } else if (className == 'nd_czytanie_tresc') {
+      currentContent = element.text.trim();
+    }
+  }
 
-    final alreadyExists = readings.any(
-      (r) =>
-          r['sigla'] == siglaText ||
-          r['content'] == contentText ||
-          r['content']!.contains(contentText) ||
-          contentText.contains(r['content']!),
-    );
-    if (alreadyExists) continue;
-
-    readings.add({'sigla': siglaText, 'content': contentText});
+  if (currentType != null && currentSigla != null && currentContent != null) {
+    readings.add({
+      'type': currentType,
+      'sigla': currentSigla,
+      'content': currentContent,
+    });
   }
 
   return readings;

@@ -46,6 +46,7 @@ class SiglaApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now();
+    // final now = DateTime.utc(2025, 06, 26);
 
     return MaterialApp(
       debugShowCheckedModeBanner: false,
