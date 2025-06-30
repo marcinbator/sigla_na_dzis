@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/cupertino.dart';
 import 'package:home_widget/home_widget.dart';
 import 'package:sigla_na_dzis/mapper/body_mapper.dart';
 
@@ -7,7 +8,10 @@ import 'api_service.dart';
 
 const String kSiglaKey = 'sigla';
 
+@pragma("vm:entry-point")
 Future<void> updateWidgetData() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
   final now = DateTime.now();
   final today = DateTime(now.year, now.month, now.day);
 
